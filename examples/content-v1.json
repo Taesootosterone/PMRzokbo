@@ -1,0 +1,37 @@
+{
+  "format": "pmrzokbo-content",
+  "version": 1,
+  "questions": [
+    {
+      "id": "q_30000000-0000-4000-8000-000000000001",
+      "title": "JSON 등록 확인용 데모",
+      "major": "사용법 데모",
+      "minor": "직접 입력 문항",
+      "examType": "직접 만든 데모",
+      "year": 2026,
+      "originalNumber": 1,
+      "stem": "실제 기출문항이 아닌 사용법 예시입니다. 1번을 선택하세요.",
+      "choices": ["예시 A", "예시 B", "예시 C", "예시 D", "예시 E"],
+      "correctAnswer": 1,
+      "explanation": "JSON 등록 기능 확인을 위한 자체 제작 데모 해설입니다.",
+      "questionImage": null,
+      "explanationImage": null,
+      "isDemo": true
+    }
+  ],
+  "concepts": [
+    {
+      "id": "c_30000000-0000-4000-8000-000000000001",
+      "name": "JSON 연결 예시",
+      "noahNoteId": "",
+      "externalUrl": ""
+    }
+  ],
+  "links": [
+    {
+      "questionId": "q_30000000-0000-4000-8000-000000000001",
+      "conceptId": "c_30000000-0000-4000-8000-000000000001"
+    }
+  ],
+  "assets": []
+}
