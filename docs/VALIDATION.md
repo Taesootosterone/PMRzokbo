@@ -83,3 +83,11 @@ v1.1.0에 **설정 → 앱 업데이트**를 추가했습니다. 앱 시작 시�
 - [새 버전 적용 후 현재 버전](screenshots/update-applied.png)
 - [실행 실패 후 이전 코드 복구](screenshots/update-rolled-back.png)
 - [모바일 앱 업데이트 설정](screenshots/settings-updates-mobile.png)
+
+## GitHub main 실제 업로드·다운로드 확인 — 2026-11-11
+
+사용자의 명시적인 업로드 요청에 따라 v1.1.0 소스·문서 53개 파일을 `Taesootosterone/PMRzokbo`의 `main`에 최초 커밋·푸시했습니다. 최초 소스 커밋은 `aca2d3c5ce4c74b98f431311256610b312206d2c`입니다. 로컬 HEAD와 실제 원격 `refs/heads/main`의 커밋 일치를 확인했습니다. 개인 설정·사용자 DB·백업·실행 캐시는 커밋에 포함하지 않았습니다. PMRtest는 변경하지 않았습니다.
+
+업로드 직전에 데이터·CLI·업데이트 테스트 8개와 프로덕션 빌드를 다시 통과했습니다. 푸시 후에는 제품의 `GitHubSource.latest()`와 `download()`를 사용해 **실제 GitHub main의 커밋을 조회하고 같은 커밋의 소스를 다운로드**했습니다. 앱 식별자·v1.1.0 버전·소스 SHA-256 무결성 검사를 통과했으며 원본 작업 폴더를 수정하지 않는 별도 임시 경로에서 검증했습니다.
+
+이 기록은 클라우드 환경 게시와 별개인 **실제 GitHub 코드 업로드와 원격 다운로드**의 확인 결과입니다. 실제 Mac에서 새 버전을 설치·적용하는 검증은 여전히 별도로 필요합니다.
