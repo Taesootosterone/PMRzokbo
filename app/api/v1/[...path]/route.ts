@@ -43,6 +43,14 @@ async function handle(req: Request, context: Context) {
         return json(await updaterRequest("apply", await req.json()), 202);
       throw new AppError(404, "업데이트 API를 찾을 수 없습니다.");
     }
+    if (resource === "desktop") {
+      if (method === "GET" && !id) return json(await updaterRequest("desktop"));
+      if (method === "POST" && id === "install")
+        return json(await updaterRequest("desktop", {}));
+      if (method === "POST" && id === "stop")
+        return json(await updaterRequest("stop", {}), 202);
+      throw new AppError(404, "Mac 앱 API를 찾을 수 없습니다.");
+    }
     const db = store();
     if (resource === "backup" && !id && method === "POST") {
       const backup = await createBackupDownload(db.directory);
@@ -63,6 +71,7 @@ async function handle(req: Request, context: Context) {
         app: "pmrzokbo",
         version: process.env.PMRZ_RUNNING_VERSION || packageInfo.version,
         commit: process.env.PMRZ_RUNNING_COMMIT || null,
+        instanceId: process.env.PMRZ_INSTANCE_ID || null,
         apiVersion: 1,
         storage: "sqlite",
         ...db.stats(),

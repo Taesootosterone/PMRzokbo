@@ -4,6 +4,12 @@ import { createRequire } from "node:module";
 import { spawn } from "node:child_process";
 import { appInfo, pathsFor } from "../lib/update-state.mjs";
 import { Updater } from "../lib/updater.mjs";
+import { instanceId, profileFromRuntime } from "../lib/mac-profile.mjs";
+import {
+  ensureMacApps,
+  installMacApps,
+  inspectMacApps,
+} from "../lib/mac-launcher.mjs";
 
 const mode = process.argv[2],
   data = process.env.PMRZ_DATA_DIR,
@@ -18,6 +24,30 @@ const current = {
 const token = randomBytes(32).toString("hex"),
   port = Number(process.env.PMRZ_PORT),
   host = process.env.PMRZ_HOST;
+const identity = instanceId(installRoot, data);
+const desktop = {
+  supported: process.platform === "darwin" && mode === "start",
+  installing: false,
+  apps: [],
+  error: null,
+};
+async function installDesktop(force = false) {
+  if (!desktop.supported)
+    throw new Error("Mac 앱 설치는 macOS의 npm start 실행에서 지원합니다.");
+  if (desktop.installing) throw new Error("Mac 앱을 설치 중입니다.");
+  desktop.installing = true;
+  desktop.error = null;
+  try {
+    desktop.apps = await (force ? installMacApps : ensureMacApps)({
+      profile: profileFromRuntime({ project: installRoot }),
+    });
+  } catch (error) {
+    desktop.error = error.message;
+    throw error;
+  } finally {
+    desktop.installing = false;
+  }
+}
 let next,
   stopping = false,
   exiting = false,
@@ -44,6 +74,7 @@ function startServer() {
         ...process.env,
         PMRZ_UPDATER_PORT: String(control.address().port),
         PMRZ_UPDATER_TOKEN: token,
+        PMRZ_INSTANCE_ID: identity,
       },
     },
   );
@@ -87,12 +118,38 @@ const control = createServer(async (req, res) => {
       );
       return;
     }
+    if (req.url === "/desktop" && req.method === "GET") {
+      if (desktop.supported && !desktop.installing)
+        desktop.apps = inspectMacApps({
+          profile: profileFromRuntime({ project: installRoot }),
+        });
+      json(desktop);
+      return;
+    }
+    if (req.url === "/desktop" && req.method === "POST") {
+      if (
+        ["installing", "backup", "restarting"].includes(updater?.status().phase)
+      )
+        throw new Error("업데이트 완료 후 Mac 앱을 설치하세요.");
+      await installDesktop(true);
+      json(desktop);
+      return;
+    }
+    if (req.url === "/stop" && req.method === "POST") {
+      if (desktop.installing || updater?.busy)
+        throw new Error("업데이트 작업 완료 후 중지하세요.");
+      json({ stopping: true }, 202);
+      setTimeout(() => void shutdown(), 250);
+      return;
+    }
     if (!updater) throw new Error(disabled);
     if (req.url === "/check" && req.method === "POST") {
       json(updater.check(), 202);
       return;
     }
     if (req.url === "/apply" && req.method === "POST") {
+      if (desktop.installing)
+        throw new Error("Mac 앱 설치가 끝난 뒤 업데이트를 적용하세요.");
       let raw = "";
       for await (const piece of req) {
         raw += piece;
@@ -133,6 +190,10 @@ try {
 }
 startServer();
 process.on("message", (message) => {
+  if (message?.type === "ready" && desktop.supported)
+    void installDesktop().catch((error) =>
+      console.error(`리햅 Mac 앱 설치: ${error.message}`),
+    );
   if (message?.type === "ready" && updater?.config.automatic) {
     const timer = setTimeout(() => {
       try {

@@ -14,6 +14,7 @@ const projectFiles = [
   "components",
   "lib",
   "scripts",
+  "mac",
   "test",
   "examples",
   "docs",

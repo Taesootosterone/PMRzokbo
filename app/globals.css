@@ -3257,3 +3257,7 @@ main {
     font-size: 9px;
   }
 }
+/* Native Mac launchers in settings. */
+.mac-apps-card { margin-top: 24px; padding-top: 22px; border-top: 1px solid var(--line, #e4e8e3); }
+.mac-apps-card p { line-height: 1.65; }
+.mac-apps-card .button { margin-top: 8px; }

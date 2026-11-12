@@ -1,6 +1,6 @@
 {
   "name": "pmrzokbo",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -15,7 +15,12 @@
     "test:e2e": "playwright test",
     "backup": "node --env-file-if-exists=.env.local scripts/data.mjs backup",
     "restore": "node --env-file-if-exists=.env.local scripts/data.mjs restore",
-    "demo": "node --env-file-if-exists=.env.local scripts/demo.mjs"
+    "demo": "node --env-file-if-exists=.env.local scripts/demo.mjs",
+    "mac:setup": "node scripts/mac-apps.mjs setup",
+    "mac:open": "node scripts/mac-apps.mjs open",
+    "mac:update": "node scripts/mac-apps.mjs update",
+    "mac:stop": "node scripts/mac-apps.mjs stop",
+    "mac:status": "node scripts/mac-apps.mjs status"
   },
   "dependencies": {
     "next": "16.4.5",

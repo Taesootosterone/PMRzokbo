@@ -8,6 +8,7 @@ import {
   RotateCcw,
 } from "lucide-react";
 import { api } from "./types";
+import { MacAppsPanel } from "./mac-apps";
 
 interface UpdateStatus {
   enabled: boolean;
@@ -51,7 +52,8 @@ export function UpdatesPanel({
     [error, setError] = useState(""),
     [requesting, setRequesting] = useState(false),
     [applying, setApplying] = useState(false),
-    [reconnecting, setReconnecting] = useState(false);
+    [reconnecting, setReconnecting] = useState(false),
+    [macBusy, setMacBusy] = useState(false);
   const target = useRef<string | null>(null),
     started = useRef(0);
   useEffect(() => {
@@ -109,7 +111,10 @@ export function UpdatesPanel({
     };
   }, [onApplying]);
   const busy =
-    requesting || applying || (!!status && working.includes(status.phase));
+    requesting ||
+    applying ||
+    macBusy ||
+    (!!status && working.includes(status.phase));
   async function check() {
     setRequesting(true);
     setError("");
@@ -241,6 +246,13 @@ export function UpdatesPanel({
           복구합니다.
         </p>
       )}
+      <MacAppsPanel
+        disabled={busy || backupBusy}
+        onBusy={(value) => {
+          setMacBusy(value);
+          onApplying(value);
+        }}
+      />
     </section>
   );
 }
