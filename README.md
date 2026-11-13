@@ -4,6 +4,8 @@
 
 **PMRtest/NOAH와 별도 프로젝트입니다.** NOAH의 소스·노트·DB·설정·백업을 수정하거나 공유하지 않습니다. NOAH를 중지해도 문제은행과 개념별 문제 목록은 동작합니다. 이번 범위에 두 앱의 실제 통합은 포함하지 않습니다.
 
+**처음 사용하는 분을 위한 설명서:** [Word 다운로드](https://github.com/Taesootosterone/PMRzokbo/blob/main/docs/manual/PMRZokbo_User_Guide_v1.2.0.docx?raw=true) · [PDF 보기](docs/manual/PMRZokbo_User_Guide_v1.2.0.pdf). 앱 v1.2.0 기준 17쪽이며, 실행·자동 시작·Tailscale·문항 등록·학습·오답 복습·백업·복원·업데이트를 실제 데모 화면으로 설명합니다. [설명서 안내](docs/manual/README.md)에서 파일을 다시 찾을 수 있습니다.
+
 ## 1. 맥미니 최초 설치
 
 Node.js **24 LTS**를 [공식 설치 프로그램](https://nodejs.org/)으로 설치하세요. 기본 앱 실행에 Homebrew·Docker·별도 SQLite 설치는 필요 없습니다. **GitHub 업데이트 기능에는 Git도 필요**합니다. 이 프로젝트의 파일을 NOAH와 다른 폴더(예: `~/Projects/PMRzokbo`)에 저장하세요. 아래 명령은 이 버전의 코드가 해당 폴더에 있다는 전제입니다.
