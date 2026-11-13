@@ -55,6 +55,9 @@ type Job = {
   totalSlides?: number;
   completedSlides?: number;
   ocrCount?: number;
+  renderMode?: "pdf" | "office";
+  pdfFilename?: string;
+  pdfSha256?: string;
   error?: string | null;
   warnings: string[];
   slides: Slide[];
@@ -68,14 +71,28 @@ type Job = {
   } | null;
 };
 type Listing = {
-  capabilities: { available: boolean; maxBytes: number; downloadUrl: string };
+  capabilities: {
+    available: boolean;
+    officeAvailable?: boolean;
+    maxBytes: number;
+    downloadUrl: string;
+  };
   jobs: (Omit<Job, "slides" | "candidates"> & { candidateCount: number })[];
 };
-const active = ["queued", "analyzing", "rendering", "ocr", "committing"];
+const active = [
+  "queued",
+  "analyzing",
+  "rendering",
+  "ocr",
+  "committing",
+  "uploading-pdf",
+];
 const phaseName: Record<string, string> = {
   uploaded: "원본 저장됨",
   queued: "분석 준비 중",
   analyzing: "슬라이드 구조 읽는 중",
+  "awaiting-pdf": "같은 PPT의 PDF를 올려 주세요",
+  "uploading-pdf": "PDF 전송 중",
   rendering: "슬라이드 화면 변환 중",
   ocr: "이미지 속 글자 읽는 중",
   ready: "검토 대기",
@@ -128,6 +145,7 @@ export function PptImportPage({
     [busy, setBusy] = useState(false),
     [uploading, setUploading] = useState(false),
     [ocr, setOcr] = useState(true),
+    [renderMode, setRenderMode] = useState("pdf"),
     [reviewed, setReviewed] = useState(false),
     [isDemo, setIsDemo] = useState(false),
     [dirty, setDirty] = useState(false),
@@ -233,6 +251,7 @@ export function PptImportPage({
             "application/vnd.openxmlformats-officedocument.presentationml.presentation",
           "X-Pmrz-Filename": encodeURIComponent(file.name),
           "X-Pmrz-Ocr": ocr ? "1" : "0",
+          "X-Pmrz-Render-Mode": renderMode,
         },
         body: file,
       });
@@ -247,14 +266,53 @@ export function PptImportPage({
       setUploading(false);
     }
   }
+  async function uploadPdf(file: File) {
+    if (!job) return;
+    if (file.size > 256 * 1024 * 1024) {
+      setError("PDF는 256MB 이하로 나누어 주세요.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/v1/ppt-imports/${job.id}/pdf`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/pdf",
+          "X-Pmrz-Filename": encodeURIComponent(file.name),
+        },
+        body: file,
+      });
+      const value = await response.json();
+      if (!response.ok)
+        throw new Error(value.error || "PDF 업로드에 실패했습니다.");
+      accept(value);
+      await updateListing();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
   async function action(name: "retry" | "cancel") {
     if (!job) return;
+    if (
+      name === "retry" &&
+      (dirty || job.reviewDrafts?.length) &&
+      !window.confirm(
+        "원본을 다시 분석하면 검토 초안의 수정 내용이 초기화됩니다. 등록한 문항과 풀이 기록은 유지됩니다. 계속할까요?",
+      )
+    )
+      return;
     setBusy(true);
     try {
       accept(
         await api<Job>(`ppt-imports/${job.id}/${name}`, {
           method: "POST",
-          body: "{}",
+          body:
+            name === "retry"
+              ? JSON.stringify({ renderMode: job.renderMode || "pdf" })
+              : "{}",
         }),
       );
       await updateListing();
@@ -377,7 +435,9 @@ export function PptImportPage({
     }
   }
   const thumb = (n: number) =>
-    job ? `/api/v1/ppt-imports/${job.id}/slides/${n}?thumb=1` : "";
+    job
+      ? `/api/v1/ppt-imports/${job.id}/slides/${n}?thumb=1&v=${job.pdfSha256 || "office"}`
+      : "";
   return (
     <>
       <Link className="back-link" href="/manage">
@@ -395,30 +455,36 @@ export function PptImportPage({
       <div className="ppt-intro-grid">
         <section className="panel ppt-upload">
           <FileStack size={30} />
-          <h2>PowerPoint 파일 선택</h2>
+          <h2>1. PPTX 원본 올리기</h2>
           <p>
-            슬라이드 화면을 이미지로 보존하고 텍스트·정답·단원을 추출합니다.
-            파일은 서버 Mac에서 처리합니다.
+            PPTX에서 문항 구조·노트·정답 표시를 읽고, 같은 파일을 PDF로 저장해
+            함께 올리면 화면을 이미지로 보존합니다. 별도 문서 변환 프로그램을
+            설치할 필요가 없습니다. 파일은 서버 Mac에서 처리합니다.
           </p>
-          {listing && !listing.capabilities.available && (
-            <div className="ppt-warning">
-              <strong>LibreOffice 설치가 한 번 필요합니다.</strong>
-              <p>
-                무료 LibreOffice를 맥미니의 Applications에 설치한 뒤 이 화면을
-                새로고침하세요. PowerPoint 모양을 이미지로 만드는 데 사용합니다.
-              </p>
-              <a
-                className="text-button"
-                href={listing.capabilities.downloadUrl}
-                target="_blank"
-                rel="noreferrer"
-              >
-                LibreOffice 공식 다운로드 ↗
-              </a>
-            </div>
+          <p className="field-help">
+            순서: PPTX 올리기 → 같은 PPT의 PDF 올리기 → 검토 후 등록
+          </p>
+          {listing?.capabilities.officeAvailable && (
+            <details>
+              <summary>기존 자동 변환 방식 사용</summary>
+              <label>
+                화면 가져오기 방식
+                <select
+                  aria-label="화면 가져오기 방식"
+                  value={renderMode}
+                  disabled={uploading || processing}
+                  onChange={(e) => setRenderMode(e.target.value)}
+                >
+                  <option value="pdf">PDF 함께 올리기 · 추가 설치 없음</option>
+                  <option value="office">
+                    이미 설치된 LibreOffice로 자동 변환
+                  </option>
+                </select>
+              </label>
+            </details>
           )}
           <label
-            className={`button primary file-button ${uploading || processing || !listing?.capabilities.available ? "disabled" : ""}`}
+            className={`button primary file-button ${uploading || busy || processing || !listing ? "disabled" : ""}`}
           >
             <Upload size={16} />
             {uploading ? "PPTX 전송 중…" : "PPTX 파일 올리기"}
@@ -426,9 +492,7 @@ export function PptImportPage({
               aria-label="PPTX 파일 업로드"
               type="file"
               accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation"
-              disabled={
-                uploading || processing || !listing?.capabilities.available
-              }
+              disabled={uploading || busy || processing || !listing}
               onChange={(e) => {
                 const file = e.target.files?.[0];
                 if (file) void upload(file);
@@ -477,8 +541,13 @@ export function PptImportPage({
             >
               <strong>{item.filename}</strong>
               <span>
-                {phaseName[item.phase] || item.phase} · {item.candidateCount}
-                문항 · {(item.bytes / 1024 / 1024).toFixed(1)}MB
+                {phaseName[item.phase] || item.phase} ·{" "}
+                {item.candidateCount
+                  ? `분석 ${item.candidateCount}문항`
+                  : item.totalSlides
+                    ? `${item.totalSlides}장`
+                    : "원본 저장"}{" "}
+                · {(item.bytes / 1024 / 1024).toFixed(1)}MB
               </span>
             </button>
           ))}
@@ -500,16 +569,20 @@ export function PptImportPage({
                   ? ` · ${job.completedSlides || 0}/${job.totalSlides}장`
                   : ""}
               </p>
+              {job.pdfFilename && (
+                <p className="field-help">화면용 PDF: {job.pdfFilename}</p>
+              )}
             </div>
-            {processing && job.phase !== "committing" && (
-              <button
-                className="button secondary"
-                disabled={busy}
-                onClick={() => void action("cancel")}
-              >
-                분석 중지
-              </button>
-            )}
+            {processing &&
+              !["committing", "uploading-pdf"].includes(job.phase) && (
+                <button
+                  className="button secondary"
+                  disabled={busy}
+                  onClick={() => void action("cancel")}
+                >
+                  분석 중지
+                </button>
+              )}
             {!processing && (
               <button
                 className="text-button"
@@ -536,7 +609,62 @@ export function PptImportPage({
               {job.error}
             </p>
           )}
-          {["error", "cancelled", "uploaded"].includes(job.phase) && (
+          {["awaiting-pdf", "error", "cancelled", "uploaded"].includes(
+            job.phase,
+          ) && (
+            <section className="ppt-warning">
+              <h3>2. 같은 PPT에서 저장한 PDF 올리기</h3>
+              <p>
+                PowerPoint 또는 Keynote에서 PPT를 PDF로 저장한 뒤 선택하세요.
+                <strong> 슬라이드 한 장이 PDF 한 페이지</strong>가 되도록 전체
+                슬라이드를 원래 순서로 저장해야 합니다.
+                {job.totalSlides ? ` 이 PPT는 ${job.totalSlides}장입니다.` : ""}
+              </p>
+              <p>
+                인쇄용 여러 슬라이드 모아찍기·노트 페이지는 사용하지 마세요.
+                숨김 슬라이드도 포함하고, 등록 전에 미리보기가 원본과 같은지
+                확인하세요.
+              </p>
+              <label
+                className={`button primary file-button ${busy || uploading ? "disabled" : ""}`}
+              >
+                <Upload size={16} />
+                {busy ? "PDF 전송 중…" : "PDF 파일 올리기"}
+                <input
+                  aria-label="화면용 PDF 파일 업로드"
+                  type="file"
+                  accept=".pdf,application/pdf"
+                  disabled={busy || uploading}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) void uploadPdf(f);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+              <details>
+                <summary>PDF로 저장하는 방법</summary>
+                <p>
+                  PowerPoint(Mac): 파일 → 다른 이름으로 저장 또는 내보내기 →
+                  파일 형식 PDF → 전체 슬라이드. 숨김 슬라이드 포함 옵션도
+                  확인하세요.
+                </p>
+                <p>
+                  Keynote(Mac): 파일 → 다음으로 내보내기 → PDF → 전체 슬라이드.
+                  건너뛴 슬라이드 포함을 켜고 발표자 메모·단계별 빌드는
+                  제외하세요.
+                </p>
+                <p>
+                  PPTX와 PDF의 장수가 다르면 등록하지 않고 알려 줍니다. 같은
+                  장수의 다른 PDF는 자동 판별할 수 없으므로 같은 PPT를
+                  사용하세요.
+                </p>
+              </details>
+            </section>
+          )}
+          {["error", "cancelled", "uploaded", "ready", "committed"].includes(
+            job.phase,
+          ) && (
             <button
               className="button secondary"
               disabled={busy}
@@ -1051,8 +1179,8 @@ export function PptImportPage({
       )}
       <p className="settings-backup-help">
         등록한 문항·문제/해설 이미지·개념 연결은 전체 백업에 포함됩니다.
-        업로드한 원본 PPT와 미등록 분석 초안은 별도 분석 자료이므로 원본 파일도
-        따로 보관하세요. 개념 본문과 NOAH 데이터는 수정하지 않습니다.
+        업로드한 원본 PPT·PDF와 미등록 분석 초안은 별도 분석 자료이므로 원본
+        파일도 따로 보관하세요. 개념 본문과 NOAH 데이터는 수정하지 않습니다.
       </p>
       {preview !== null && job && (
         <div
@@ -1071,7 +1199,7 @@ export function PptImportPage({
           </button>
           <img
             alt={`슬라이드 ${preview} 원본`}
-            src={`/api/v1/ppt-imports/${job.id}/slides/${preview}`}
+            src={`/api/v1/ppt-imports/${job.id}/slides/${preview}?v=${job.pdfSha256 || "office"}`}
             onClick={(e) => e.stopPropagation()}
           />
         </div>

@@ -1,10 +1,16 @@
 import { defineConfig } from "@playwright/test";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createUpdateFixture } from "./test/helpers/update-fixture.mjs";
 process.env.PMRZ_E2E_DIR ||= mkdtempSync(join(tmpdir(), "pmrz-browser-"));
 const fixture = createUpdateFixture(process.env.PMRZ_E2E_DIR, process.cwd());
+const officeGuard = join(fixture.bin, "soffice-must-not-run");
+writeFileSync(
+  officeGuard,
+  '#!/bin/sh\ntouch "$PMRZ_E2E_DIR/office-was-invoked"\nexit 97\n',
+  { mode: 0o755 },
+);
 export default defineConfig({
   testDir: "./test/browser",
   workers: 1,
@@ -34,6 +40,8 @@ export default defineConfig({
       PMRZ_PORT: "14310",
       PMRZ_HOST: "127.0.0.1",
       PMRZ_AUTO_UPDATE_CHECK: "0",
+      PMRZ_E2E_DIR: process.env.PMRZ_E2E_DIR,
+      PMRZ_LIBREOFFICE_BIN: officeGuard,
       // Allow a cold production server to initialize native image packages after an update.
       PMRZ_UPDATE_READY_TIMEOUT_MS: "20000",
       PATH: `${fixture.bin}:${process.env.PATH || ""}`,

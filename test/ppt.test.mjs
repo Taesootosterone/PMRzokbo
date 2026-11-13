@@ -30,6 +30,7 @@ import {
   saveReview,
   getJob,
   cancelJob,
+  acceptRenderPdf,
 } from "../lib/ppt-jobs.mjs";
 import { Store } from "../lib/store.mjs";
 import { createBackup, restoreBackup } from "../lib/backup.mjs";
@@ -37,6 +38,39 @@ import {
   createPptFixture,
   createStructuredPptFixture,
 } from "./helpers/ppt-fixture.mjs";
+test("invalid PDF and in-progress PDF replacement preserve the PPT original and review state", async () => {
+  const root = mkdtempSync(join(tmpdir(), "pmrz-pdf-upload-")),
+    id = randomUUID(),
+    dir = jobDirectory(root, id);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "source.pptx"), "original-ppt-unchanged");
+  saveJob(dir, {
+    id,
+    phase: "awaiting-pdf",
+    filename: "demo.pptx",
+    candidates: [],
+    slides: [],
+  });
+  const request = () =>
+    new Request("http://localhost/api/v1/ppt-imports/x/pdf", {
+      method: "POST",
+      headers: { "X-Pmrz-Filename": encodeURIComponent("같은파일.pdf") },
+      body: "not a pdf",
+    });
+  try {
+    await assert.rejects(acceptRenderPdf(request(), root, id), /PDF 형식/);
+    assert.equal(getJob(root, id).phase, "awaiting-pdf");
+    assert.equal(
+      readFileSync(join(dir, "source.pptx"), "utf8"),
+      "original-ppt-unchanged",
+    );
+    saveJob(dir, { phase: "committing" });
+    await assert.rejects(acceptRenderPdf(request(), root, id), /분석 중/);
+    assert.equal(getJob(root, id).phase, "committing");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 const slides = [
   "표지",
   "35. 척수손상 신경인성 방광 평가",

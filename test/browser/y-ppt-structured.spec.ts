@@ -1,7 +1,16 @@
 import { test, expect } from "@playwright/test";
-import { mkdirSync } from "node:fs";
+import {
+  mkdirSync,
+  existsSync,
+  readFileSync,
+  writeFileSync,
+  unlinkSync,
+} from "node:fs";
 import { join } from "node:path";
-import { createStructuredPptFixture } from "../helpers/ppt-fixture.mjs";
+import {
+  createStructuredPptFixture,
+  createPdfFixture,
+} from "../helpers/ppt-fixture.mjs";
 
 test("repeated question headers and highlighted answers preserve late problem figures; disputes require manual answers", async ({
   page,
@@ -10,6 +19,8 @@ test("repeated question headers and highlighted answers preserve late problem fi
   const dir = join(process.env.PMRZ_E2E_DIR!, "structured-ppt-input");
   mkdirSync(dir, { recursive: true });
   const file = await createStructuredPptFixture(dir);
+  const pdf = await createPdfFixture(file);
+  const wrongPdf = await createPdfFixture(file, { pageCount: 11 });
   const before = (await (await request.get("/api/v1/overview")).json()).stats
     .total;
   await page.goto("/manage/ppt");
@@ -17,6 +28,17 @@ test("repeated question headers and highlighted answers preserve late problem fi
   await page
     .getByLabel("PPTX 파일 업로드", { exact: true })
     .setInputFiles(file);
+  await page
+    .getByLabel("화면용 PDF 파일 업로드", { exact: true })
+    .setInputFiles(wrongPdf);
+  await expect(page.locator('.ppt-current [role="alert"]')).toContainText(
+    "PPT는 12장인데 PDF는 11페이지",
+    { timeout: 30000 },
+  );
+  await expect(page.locator(".ppt-candidate")).toHaveCount(0);
+  await page
+    .getByLabel("화면용 PDF 파일 업로드", { exact: true })
+    .setInputFiles(pdf);
   const cards = page.locator(".ppt-candidate");
   await expect(cards).toHaveCount(2, { timeout: 90000 });
   await expect(
@@ -98,4 +120,36 @@ test("repeated question headers and highlighted answers preserve late problem fi
   await expect(
     page.getByAltText("정답·해설 이미지", { exact: true }),
   ).toBeVisible();
+  // Upgrade an old job without a rendering-mode field. Retry must ask for PDF,
+  // retain registered questions, and never invoke the old Office converter.
+  const legacyDir = join(
+    process.env.PMRZ_E2E_DIR!,
+    "primary",
+    "ppt-imports",
+    jobId,
+  );
+  const legacy = JSON.parse(readFileSync(join(legacyDir, "job.json"), "utf8"));
+  delete legacy.renderMode;
+  delete legacy.pdfFilename;
+  delete legacy.pdfSha256;
+  unlinkSync(join(legacyDir, "render-input.pdf"));
+  writeFileSync(join(legacyDir, "job.json"), JSON.stringify(legacy));
+  expect(
+    (
+      await request.post(`/api/v1/ppt-imports/${jobId}/retry`, { data: {} })
+    ).status(),
+  ).toBe(202);
+  await expect
+    .poll(
+      async () =>
+        (await (await request.get(`/api/v1/ppt-imports/${jobId}`)).json())
+          .phase,
+    )
+    .toBe("awaiting-pdf");
+  expect(
+    (await (await request.get("/api/v1/overview")).json()).stats.total,
+  ).toBe(before + 2);
+  expect(
+    existsSync(join(process.env.PMRZ_E2E_DIR!, "office-was-invoked")),
+  ).toBe(false);
 });

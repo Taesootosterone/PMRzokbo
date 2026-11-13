@@ -7,6 +7,7 @@ import { updaterRequest } from "@/lib/update-client.mjs";
 import packageInfo from "@/package.json";
 import {
   acceptPresentation,
+  acceptRenderPdf,
   listJobs,
   getJob,
   jobDirectory,
@@ -49,12 +50,14 @@ async function handle(req: Request, context: Context) {
           );
       }
       const limit =
-        resource === "ppt-imports" && !id ? MAX_PPT_BYTES : 64 * 1024 * 1024;
+        resource === "ppt-imports" && (!id || action === "pdf")
+          ? MAX_PPT_BYTES
+          : 64 * 1024 * 1024;
       if (Number(req.headers.get("content-length")) > limit)
         throw new AppError(
           413,
           resource === "ppt-imports"
-            ? "PPTX는 256MB 이하로 나누어 주세요."
+            ? "PPTX·PDF는 각각 256MB 이하로 나누어 주세요."
             : "64MB 이하의 파일을 사용하세요.",
         );
     }
@@ -88,14 +91,23 @@ async function handle(req: Request, context: Context) {
           return json(getJob(db.directory, id));
         if (id && !action && method === "PATCH")
           return json(regroupJob(db.directory, id, await req.json()));
-        if (id && action === "retry" && method === "POST")
-          return json(startJob(db.directory, id), 202);
+        if (id && action === "retry" && method === "POST") {
+          const options = await req.json().catch(() => ({}));
+          return json(
+            startJob(db.directory, id, {
+              renderMode: options.renderMode === "office" ? "office" : "pdf",
+            }),
+            202,
+          );
+        }
         if (id && action === "cancel" && method === "POST")
           return json(cancelJob(db.directory, id));
         if (id && action === "commit" && method === "POST")
           return json(await commitJob(db, id, await req.json()));
         if (id && action === "draft" && method === "POST")
           return json(saveReview(db.directory, id, await req.json()));
+        if (id && action === "pdf" && method === "POST")
+          return json(await acceptRenderPdf(req, db.directory, id), 202);
         if (id && action === "slides" && method === "GET") {
           const n = Number(path[3]),
             job = getJob(db.directory, id);

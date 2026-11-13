@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { join } from "node:path";
-import { mkdirSync, statSync } from "node:fs";
-import { createPptFixture } from "../helpers/ppt-fixture.mjs";
+import { mkdirSync, statSync, existsSync } from "node:fs";
+import { createPptFixture, createPdfFixture } from "../helpers/ppt-fixture.mjs";
 
 test("33MB PPTX: variable groups + local image OCR → review/edit → import/play → reopen/idempotency → delete draft preserves bank", async ({
   page,
@@ -11,6 +11,7 @@ test("33MB PPTX: variable groups + local image OCR → review/edit → import/pl
   const root = join(process.env.PMRZ_E2E_DIR!, "ppt-input");
   mkdirSync(root, { recursive: true });
   const file = await createPptFixture(root, { large: true });
+  const pdf = await createPdfFixture(file);
   expect(statSync(file).size).toBeGreaterThan(32 * 1024 * 1024);
   const before = await (await request.get("/api/v1/overview")).json();
   await page.goto("/manage");
@@ -23,6 +24,25 @@ test("33MB PPTX: variable groups + local image OCR → review/edit → import/pl
   await page
     .getByLabel("PPTX 파일 업로드", { exact: true })
     .setInputFiles(file);
+  await expect(
+    page.getByRole("heading", {
+      name: "2. 같은 PPT에서 저장한 PDF 올리기",
+      exact: true,
+    }),
+  ).toBeVisible({ timeout: 30000 });
+  // The waiting state and original survive closing/reopening the page.
+  await page.reload();
+  await page
+    .locator(".ppt-job-button")
+    .filter({ hasText: "2023_전문의_1차_1교시_데모.pptx" })
+    .click();
+  await page.screenshot({
+    path: testInfo.outputPath("ppt-pdf-upload.png"),
+    fullPage: true,
+  });
+  await page
+    .getByLabel("화면용 PDF 파일 업로드", { exact: true })
+    .setInputFiles(pdf);
   await expect(page.locator(".ppt-candidate")).toHaveCount(2, {
     timeout: 150000,
   });
@@ -176,4 +196,7 @@ test("33MB PPTX: variable groups + local image OCR → review/edit → import/pl
     data: "not a ppt",
   });
   expect(denied.status()).toBe(403);
+  expect(
+    existsSync(join(process.env.PMRZ_E2E_DIR!, "office-was-invoked")),
+  ).toBe(false);
 });

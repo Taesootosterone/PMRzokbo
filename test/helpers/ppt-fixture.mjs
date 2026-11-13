@@ -1,9 +1,12 @@
 import pptxgen from "pptxgenjs";
 import sharp from "sharp";
-import { join } from "node:path";
+import { join, posix } from "node:path";
 import { readFileSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import JSZip from "jszip";
+import { PDFDocument } from "pdf-lib";
+import { XMLParser } from "fast-xml-parser";
+import { readPresentation } from "../../lib/ppt-archive.mjs";
 export async function createPptFixture(directory, { large = false } = {}) {
   const ppt = new pptxgen();
   ppt.layout = "LAYOUT_WIDE";
@@ -164,4 +167,69 @@ export async function createStructuredPptFixture(directory) {
   const file = join(directory, "2023_전문의_2차_1교시_구조데모.pptx");
   await ppt.writeFile({ fileName: file });
   return file;
+}
+
+// Test-only PDF writer. Text pages are drawn from the synthetic fixture and
+// image-only pages embed its original PNG. No external office program runs.
+export async function createPdfFixture(pptxFile, { pageCount } = {}) {
+  const slides = await readPresentation(pptxFile),
+    zip = await JSZip.loadAsync(readFileSync(pptxFile)),
+    pdf = await PDFDocument.create(),
+    parser = new XMLParser({
+      ignoreAttributes: false,
+      attributeNamePrefix: "@",
+    });
+  const escape = (s) =>
+    s
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;");
+  for (const slide of slides.slice(0, pageCount ?? slides.length)) {
+    let png;
+    if (slide.text.trim()) {
+      const lines = slide.text
+        .split("\n")
+        .flatMap((line) =>
+          Array.from(
+            { length: Math.max(1, Math.ceil(line.length / 52)) },
+            (_, i) => line.slice(i * 52, (i + 1) * 52),
+          ),
+        )
+        .slice(0, 18);
+      png = await sharp(
+        Buffer.from(
+          `<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900"><rect width="1600" height="900" fill="white"/><g font-family="Noto Sans CJK KR" font-size="34" fill="#182e21">${lines.map((s, i) => `<text x="55" y="${58 + i * 45}">${escape(s)}</text>`).join("")}</g></svg>`,
+        ),
+      )
+        .png()
+        .toBuffer();
+    } else {
+      const xml = await zip
+        .file(`ppt/slides/slide${slide.number}.xml`)
+        .async("string");
+      const embed = xml.match(/<a:blip\b[^>]*r:embed="([^"]+)"/)[1];
+      const rels = parser.parse(
+        await zip
+          .file(`ppt/slides/_rels/slide${slide.number}.xml.rels`)
+          .async("string"),
+      ).Relationships.Relationship;
+      const rel = (Array.isArray(rels) ? rels : [rels]).find(
+        (r) => r["@Id"] === embed,
+      );
+      const image = await zip
+        .file(posix.normalize(posix.join("ppt/slides", rel["@Target"])))
+        .async("nodebuffer");
+      png = await sharp(image).png().toBuffer();
+    }
+    const embedded = await pdf.embedPng(png),
+      page = pdf.addPage([960, 540]);
+    page.drawImage(embedded, { x: 0, y: 0, width: 960, height: 540 });
+  }
+  const path = pptxFile.replace(
+    /\.pptx$/i,
+    pageCount === undefined ? ".pdf" : `-${pageCount}pages.pdf`,
+  );
+  writeFileSync(path, await pdf.save());
+  return path;
 }
