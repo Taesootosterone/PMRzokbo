@@ -104,3 +104,64 @@ export async function createPptFixture(directory, { large = false } = {}) {
   }
   return file;
 }
+
+// Original synthetic text only: reproduces repeated headers, highlighted
+// answers, late enlarged question figures and disputed reconstructed answers.
+export async function createStructuredPptFixture(directory) {
+  const ppt = new pptxgen();
+  ppt.layout = "LAYOUT_WIDE";
+  ppt.author = "PMRZokbo synthetic test";
+  const add = (number, label, body = "", highlighted = []) => {
+    const slide = ppt.addSlide();
+    const opts = {
+      x: 0.5,
+      w: 12,
+      h: 0.5,
+      fontFace: "Noto Sans CJK KR",
+      fontSize: 21,
+      color: "234834",
+    };
+    slide.addText(`${String(number).padStart(2, "0")}번`, { ...opts, y: 0.2 });
+    slide.addText(label, { ...opts, y: 0.8 });
+    slide.addText("2023 재활의학과 전문의시험 / 2차 1교시 / 척수", {
+      ...opts,
+      y: 1.4,
+      fontSize: 14,
+    });
+    slide.addText(body || "직접 만든 데모 · 임상·기출 해설이 아닙니다.", {
+      ...opts,
+      y: 2.1,
+      h: 1,
+    });
+    for (let n = 1; n <= 5; n++)
+      slide.addText(`${n}) 가상 선지 ${n}`, {
+        ...opts,
+        y: 3 + n * 0.6,
+        highlight: highlighted.includes(n) ? "BDF27C" : undefined,
+      });
+    return slide;
+  };
+  add(1, "문제", "신경인성 방광 · 데모 문제");
+  add(1, "정답", "신경인성 방광 · 데모 문제", [3]);
+  add(1, "워드 원문 해설 1/2", "답) 3번\n이 문장은 가져오기 테스트용입니다.");
+  add(1, "워드 원문 해설 2/2");
+  add(1, "문제 그림 확대 1/2", "정답 제출 전에 보여야 하는 가상 그림 자료 A");
+  add(
+    1,
+    "문제 지문·보기 확대 2/2",
+    "정답 제출 전에 보여야 하는 가상 그림 자료 B",
+  );
+  add(1, "근거 대조");
+  add(2, "문제", "척수손상 · 데모 문제");
+  add(2, "복원 답·이견", "복원 이견 · 가상 자료 A ② / 가상 자료 B ④", [2, 4]);
+  add(
+    2,
+    "워드 원문 해설",
+    "답) 2번\n단일 자료의 표기만으로 이견을 없애면 안 됩니다.",
+  );
+  add(2, "별도 워드의 추가 복원");
+  add(2, "근거 대조");
+  const file = join(directory, "2023_전문의_2차_1교시_구조데모.pptx");
+  await ppt.writeFile({ fileName: file });
+  return file;
+}

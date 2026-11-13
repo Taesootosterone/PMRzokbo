@@ -19,6 +19,7 @@ import {
   classifyContent,
   importedId,
   questionNumber,
+  slideRole,
 } from "../lib/ppt-model.mjs";
 import { readPresentation } from "../lib/ppt-archive.mjs";
 import {
@@ -32,7 +33,10 @@ import {
 } from "../lib/ppt-jobs.mjs";
 import { Store } from "../lib/store.mjs";
 import { createBackup, restoreBackup } from "../lib/backup.mjs";
-import { createPptFixture } from "./helpers/ppt-fixture.mjs";
+import {
+  createPptFixture,
+  createStructuredPptFixture,
+} from "./helpers/ppt-fixture.mjs";
 const slides = [
   "표지",
   "35. 척수손상 신경인성 방광 평가",
@@ -75,6 +79,9 @@ test("answers need explicit evidence; conflicting/multiple answers and choices a
   assert.equal(detectAnswer("Answer: [B]").answer, 2);
   assert.equal(detectAnswer("정답:\n③").answer, 3);
   assert.equal(detectAnswer("Answer\n(B)").answer, 2);
+  assert.equal(detectAnswer("답) 5번").answer, 5);
+  assert.equal(detectAnswer("정답)\n③").answer, 3);
+  assert.equal(detectAnswer("복원 답·이견\n답) 2번").answer, null);
   assert.equal(detectAnswer("정답: (①),(③)").answer, null);
   assert.equal(detectAnswer("오답: ①\n정답: ③").answer, 3);
   for (const text of ["정답: ③\n정답: ②", "정답: ①,③", "정답: 12"])
@@ -94,6 +101,54 @@ test("answers need explicit evidence; conflicting/multiple answers and choices a
     { number: 2, text: "해설만 있고 정답은 지정하지 않았습니다." },
   ]).candidates[0];
   assert.equal(unknown.correctAnswer, null);
+});
+test("numbered repeated headers keep late enlarged problem pages out of answers and leave disputed answers empty", async () => {
+  const root = mkdtempSync(join(tmpdir(), "pmrz-ppt-structured-"));
+  try {
+    const file = await createStructuredPptFixture(root);
+    const slides = await readPresentation(file);
+    assert.equal(slideRole(slides[1]), "answer");
+    assert.equal(slideRole(slides[4]), "question");
+    assert.equal(slideRole(slides[6]), "explanation");
+    assert.deepEqual(slides[1].highlightedChoices, [3]);
+    assert.deepEqual(slides[8].highlightedChoices, [2, 4]);
+    const { candidates } = groupSlides(slides);
+    assert.equal(candidates.length, 2);
+    assert.deepEqual(candidates[0].questionSlides, [1, 5, 6]);
+    assert.deepEqual(candidates[0].explanationSlides, [2, 3, 4, 7]);
+    assert.equal(candidates[0].correctAnswer, 3);
+    assert.equal(candidates[0].major, "척수");
+    assert.equal(candidates[1].correctAnswer, null);
+    assert.ok(candidates[1].warnings.some((s) => /이견/.test(s)));
+    assert.equal(
+      groupSlides(
+        slides.map((s) =>
+          s.number === 3 ? { ...s, text: "해설", notes: "" } : s,
+        ),
+      ).candidates[0].correctAnswer,
+      3,
+    );
+    assert.equal(
+      groupSlides(
+        slides.map((s) => ({
+          ...s,
+          highlightedChoices: s.number === 1 || s.number === 2 ? [3] : [],
+          text: s.number === 3 ? "해설" : s.text,
+        })),
+      ).candidates[0].correctAnswer,
+      null,
+    );
+    assert.equal(
+      classifyContent("어깨 shoulder paraffin", { section: "물리·노인" }).major,
+      "물리·노인",
+    );
+    assert.equal(
+      classifyContent("어깨 shoulder", { section: "물리·노인" }).confidence,
+      "unclassified",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 test("manual starts correct irregular boundaries; ranges reject malformed, overlapping and out-of-range input", () => {
   const result = groupSlides(

@@ -55,7 +55,7 @@ test("설정 버튼으로 실제 Git 다운로드·버전 적용·재시작·빌
       await fetch("http://127.0.0.1:14312/api/v1/health")
     ).json();
     expect(health.commit).toBeNull();
-    expect(health.version).toBe("1.3.0");
+    expect(health.version).toBe(JSON.parse(packageBefore.toString()).version);
     expect(
       existsSync(join(automaticData, "updates/downloads", sha, "node_modules")),
     ).toBe(false);
