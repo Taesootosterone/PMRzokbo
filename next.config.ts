@@ -1,6 +1,15 @@
 import type { NextConfig } from "next";
 const config: NextConfig = {
-  serverExternalPackages: ["sharp"],
+  serverExternalPackages: [
+    "sharp",
+    "@napi-rs/canvas",
+    "pdfjs-dist",
+    "tesseract.js",
+    "@tesseract.js-data/kor",
+    "@tesseract.js-data/eng",
+    "yauzl",
+    "fast-xml-parser",
+  ],
   poweredByHeader: false,
   async headers() {
     return [

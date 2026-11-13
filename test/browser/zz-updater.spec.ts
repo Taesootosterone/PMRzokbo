@@ -8,7 +8,7 @@ test("설정 버튼으로 실제 Git 다운로드·버전 적용·재시작·빌
   page,
   request,
 }, testInfo) => {
-  test.setTimeout(240000);
+  test.setTimeout(480000);
   const root = process.env.PMRZ_E2E_DIR!,
     remote = join(root, "github-fixture");
   if (!(await (await request.get("/api/v1/questions")).json()).length)
@@ -16,7 +16,7 @@ test("설정 버튼으로 실제 Git 다운로드·버전 적용·재시작·빌
   const before = await (await request.get("/api/v1/export")).json(),
     overview = await (await request.get("/api/v1/overview")).json();
   const packageBefore = readFileSync("package.json");
-  const sha = publishFixture(remote, "1.2.2");
+  const sha = publishFixture(remote, "1.3.2");
   // A separate real server must download automatically without applying or running the new code.
   const automaticData = join(root, "automatic-data");
   const automatic = spawn(process.execPath, ["scripts/serve.mjs", "start"], {
@@ -55,7 +55,7 @@ test("설정 버튼으로 실제 Git 다운로드·버전 적용·재시작·빌
       await fetch("http://127.0.0.1:14312/api/v1/health")
     ).json();
     expect(health.commit).toBeNull();
-    expect(health.version).toBe("1.2.0");
+    expect(health.version).toBe("1.3.0");
     expect(
       existsSync(join(automaticData, "updates/downloads", sha, "node_modules")),
     ).toBe(false);
@@ -108,7 +108,7 @@ test("설정 버튼으로 실제 Git 다운로드·버전 적용·재시작·빌
           return null;
         }
       },
-      { timeout: 90000 },
+      { timeout: 180000 },
     )
     .toBe(sha);
   await expect
@@ -142,13 +142,13 @@ test("설정 버튼으로 실제 Git 다운로드·버전 적용·재시작·빌
   await page.getByRole("button", { name: "설정", exact: true }).click();
   dialog = page.getByRole("dialog", { name: "설정", exact: true });
   await dialog.getByRole("tab", { name: "앱 업데이트", exact: true }).click();
-  await expect(dialog.locator(".update-version")).toContainText("v1.2.2");
+  await expect(dialog.locator(".update-version")).toContainText("v1.3.2");
   await page.screenshot({
     path: testInfo.outputPath("update-applied.png"),
     fullPage: true,
   });
 
-  publishFixture(remote, "1.2.3", { buildFailure: true });
+  publishFixture(remote, "1.3.3", { buildFailure: true });
   await dialog
     .getByRole("button", { name: "업데이트 확인·다운로드", exact: true })
     .click();
@@ -166,7 +166,7 @@ test("설정 버튼으로 실제 Git 다운로드·버전 적용·재시작·빌
   expect((await (await request.get("/api/v1/health")).json()).commit).toBe(sha);
   await expect(dialog.getByRole("button", { name: "설정 닫기" })).toBeEnabled();
 
-  publishFixture(remote, "1.2.4", { startFailure: true });
+  publishFixture(remote, "1.3.4", { startFailure: true });
   await dialog
     .getByRole("button", { name: "업데이트 확인·다운로드", exact: true })
     .click();
@@ -187,7 +187,7 @@ test("설정 버튼으로 실제 Git 다운로드·버전 적용·재시작·빌
           return "offline";
         }
       },
-      { timeout: 90000 },
+      { timeout: 180000 },
     )
     .toBe("rolled-back");
   await expect(dialog.getByRole("alert")).toContainText("이전 코드로 복구", {

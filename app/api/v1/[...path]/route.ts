@@ -5,6 +5,22 @@ import type { Question } from "@/components/types";
 import { createBackupDownload } from "@/lib/backup.mjs";
 import { updaterRequest } from "@/lib/update-client.mjs";
 import packageInfo from "@/package.json";
+import {
+  acceptPresentation,
+  listJobs,
+  getJob,
+  jobDirectory,
+  startJob,
+  cancelJob,
+  regroupJob,
+  commitJob,
+  deleteJob,
+  saveReview,
+} from "@/lib/ppt-jobs.mjs";
+import { pptCapabilities } from "@/lib/ppt-local.mjs";
+import { MAX_PPT_BYTES } from "@/lib/ppt-model.mjs";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 type Context = { params: Promise<{ path: string[] }> };
@@ -32,8 +48,15 @@ async function handle(req: Request, context: Context) {
             "다른 사이트에서의 변경 요청은 허용하지 않습니다.",
           );
       }
-      if (Number(req.headers.get("content-length")) > 64 * 1024 * 1024)
-        throw new AppError(413, "64MB 이하의 파일을 사용하세요.");
+      const limit =
+        resource === "ppt-imports" && !id ? MAX_PPT_BYTES : 64 * 1024 * 1024;
+      if (Number(req.headers.get("content-length")) > limit)
+        throw new AppError(
+          413,
+          resource === "ppt-imports"
+            ? "PPTX는 256MB 이하로 나누어 주세요."
+            : "64MB 이하의 파일을 사용하세요.",
+        );
     }
     if (resource === "updates") {
       if (method === "GET" && !id) return json(await updaterRequest("status"));
@@ -52,6 +75,63 @@ async function handle(req: Request, context: Context) {
       throw new AppError(404, "Mac 앱 API를 찾을 수 없습니다.");
     }
     const db = store();
+    if (resource === "ppt-imports") {
+      try {
+        if (!id && method === "GET")
+          return json({
+            capabilities: pptCapabilities(),
+            jobs: listJobs(db.directory),
+          });
+        if (!id && method === "POST")
+          return json(await acceptPresentation(req, db.directory), 202);
+        if (id && !action && method === "GET")
+          return json(getJob(db.directory, id));
+        if (id && !action && method === "PATCH")
+          return json(regroupJob(db.directory, id, await req.json()));
+        if (id && action === "retry" && method === "POST")
+          return json(startJob(db.directory, id), 202);
+        if (id && action === "cancel" && method === "POST")
+          return json(cancelJob(db.directory, id));
+        if (id && action === "commit" && method === "POST")
+          return json(await commitJob(db, id, await req.json()));
+        if (id && action === "draft" && method === "POST")
+          return json(saveReview(db.directory, id, await req.json()));
+        if (id && action === "slides" && method === "GET") {
+          const n = Number(path[3]),
+            job = getJob(db.directory, id);
+          if (!Number.isInteger(n) || n < 1 || n > (job.totalSlides || 0))
+            throw new AppError(404, "슬라이드를 찾을 수 없습니다.");
+          const thumb = url.searchParams.get("thumb") === "1";
+          return new Response(
+            new Uint8Array(
+              readFileSync(
+                /* turbopackIgnore: true */
+                join(
+                  /* turbopackIgnore: true */
+                  jobDirectory(db.directory, id),
+                  thumb ? "thumbs" : "slides",
+                  `${n}.${thumb ? "jpg" : "png"}`,
+                ),
+              ),
+            ),
+            {
+              headers: {
+                "Content-Type": thumb ? "image/jpeg" : "image/png",
+                "Cache-Control": "private, max-age=3600",
+                "X-Content-Type-Options": "nosniff",
+              },
+            },
+          );
+        }
+        if (id && !action && method === "DELETE") {
+          return json(deleteJob(db.directory, id));
+        }
+        throw new AppError(404, "PPT 가져오기 API를 찾을 수 없습니다.");
+      } catch (error) {
+        const e = error as Error & { status?: number };
+        throw new AppError(e.status || 400, e.message);
+      }
+    }
     if (resource === "backup" && !id && method === "POST") {
       const backup = await createBackupDownload(db.directory);
       return new Response(new Uint8Array(backup.buffer), {
@@ -131,6 +211,8 @@ async function handle(req: Request, context: Context) {
               void explanationImage;
               void choices;
               void stem;
+              if (summary.source)
+                summary.source = { ...summary.source, explanationText: "" };
               return summary;
             }),
         );
@@ -210,4 +292,5 @@ async function handle(req: Request, context: Context) {
 export const GET = handle,
   POST = handle,
   PUT = handle,
-  PATCH = handle;
+  PATCH = handle,
+  DELETE = handle;

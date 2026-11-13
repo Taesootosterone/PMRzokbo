@@ -28,6 +28,7 @@ export function QuestionEditor({
     explanationImage: initial?.explanationImage || null,
     isDemo: initial?.isDemo || false,
     conceptIds: initial?.conceptIds || [],
+    source: initial?.source,
   });
   const [kind, setKind] = useState(
       initial?.questionImage || !initial ? "image" : "text",

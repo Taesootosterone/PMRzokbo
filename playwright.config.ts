@@ -34,7 +34,8 @@ export default defineConfig({
       PMRZ_PORT: "14310",
       PMRZ_HOST: "127.0.0.1",
       PMRZ_AUTO_UPDATE_CHECK: "0",
-      PMRZ_UPDATE_READY_TIMEOUT_MS: "6000",
+      // Allow a cold production server to initialize native image packages after an update.
+      PMRZ_UPDATE_READY_TIMEOUT_MS: "20000",
       PATH: `${fixture.bin}:${process.env.PATH || ""}`,
     },
   },

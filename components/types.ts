@@ -24,6 +24,15 @@ export interface Question {
   memo: string;
   latest: boolean | null;
   attemptCount: number;
+  source?: {
+    kind: "pptx";
+    filename: string;
+    sha256: string;
+    questionSlides: number[];
+    explanationSlides: number[];
+    questionText?: string;
+    explanationText?: string;
+  };
 }
 export interface Session {
   id: string;

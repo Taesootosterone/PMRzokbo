@@ -2,6 +2,8 @@
 
 앱 v1.2.0 기준의 한국어 사용설명서입니다. 작성일은 2026년 11월 12일이며, 앱 소스 기준 커밋은 `40010b4d5f05b4c820a8363c6eea4971165c0302`입니다. 실제 데모 화면을 포함한 17쪽 분량입니다.
 
+**v1.3.0의 새 PPTX 자동 가져오기는 [별도 안내](../PPT_IMPORT.md)를 보세요.** 아래 Word/PDF의 v1.2.0 설명에는 PPT 기능이 포함되지 않습니다.
+
 - [Word 파일 다운로드](https://github.com/Taesootosterone/PMRzokbo/blob/main/docs/manual/PMRZokbo_User_Guide_v1.2.0.docx?raw=true)
 - [PDF 보기·다운로드](PMRZokbo_User_Guide_v1.2.0.pdf)
 

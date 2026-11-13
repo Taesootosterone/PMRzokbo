@@ -91,7 +91,7 @@ test("Mac controller: detached startup → real update → stable external runne
     };
     const before = await content();
     const overview = await (await fetch(`${base}/api/v1/overview`)).json();
-    const sha = publishFixture(join(root, "github-fixture"), "1.2.1");
+    const sha = publishFixture(join(root, "github-fixture"), "1.3.1");
     expect(await runMacAction("update", options)).toContain(
       "업데이트를 마쳤습니다",
     );
@@ -112,7 +112,7 @@ test("Mac controller: detached startup → real update → stable external runne
       [paths.runner, paths.profile, "status"],
       { env: process.env },
     );
-    expect(stdout).toContain("v1.2.1 실행 중");
+    expect(stdout).toContain("v1.3.1 실행 중");
     expect(await runMacAction("update", options)).toContain("이미 최신 버전");
     expect(await runMacAction("stop", options)).toContain("중지했습니다");
     await expect

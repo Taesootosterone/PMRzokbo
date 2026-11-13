@@ -31,6 +31,7 @@ import { api, type Question, type Overview, type Concept } from "./types";
 import { QuestionEditor, ConceptEditor } from "./editor";
 import { QuestionPage, SessionPage } from "./solver";
 import { SettingsDialog } from "./settings";
+import { PptImportPage } from "./ppt-import";
 
 const navigation = [
   { href: "/", name: "단원별 학습", icon: BookOpen, sub: "LEARN" },
@@ -107,7 +108,7 @@ export default function Workspace() {
   const selected = questions.filter(
     (q) =>
       !search ||
-      `${q.title} ${q.major} ${q.minor} ${q.year}년 ${q.examType} ${q.originalNumber}번`
+      `${q.title} ${q.major} ${q.minor} ${q.year}년 ${q.examType} ${q.originalNumber}번 ${q.source?.questionText || ""}`
         .toLowerCase()
         .includes(search.toLowerCase()),
   );
@@ -441,6 +442,9 @@ export default function Workspace() {
                   refresh={refresh}
                   notify={notify}
                 />
+              )}
+              {path === "/manage/ppt" && (
+                <PptImportPage refresh={refresh} notify={notify} />
               )}
               {path.startsWith("/concepts/") && (
                 <ConceptPage
@@ -1210,6 +1214,9 @@ function Management({
       </div>
       <div className="management-tools">
         <div>
+          <Link className="button primary" href="/manage/ppt">
+            PPTX 자동 가져오기
+          </Link>
           <a className="button secondary" href="/api/v1/export">
             문항 JSON 내보내기 <ArrowUpRight size={14} />
           </a>

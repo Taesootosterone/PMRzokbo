@@ -69,6 +69,13 @@ export function QuestionPage({
         <div>
           <div className="eyebrow">나의 문항 서재</div>
           <h1>{q.title}</h1>
+          {q.source && (
+            <p className="field-help">
+              PPT 원본: {q.source.filename} · 문제 슬라이드{" "}
+              {q.source.questionSlides.join(", ")} · 정답·해설{" "}
+              {q.source.explanationSlides.join(", ")}
+            </p>
+          )}
           <p>
             {q.major} → {q.minor} · {q.year}년 {q.examType} {q.originalNumber}번{" "}
             {q.isDemo && <span className="badge demo">데모 문항</span>}
