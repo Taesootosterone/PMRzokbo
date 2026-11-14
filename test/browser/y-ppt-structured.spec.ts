@@ -4,18 +4,19 @@ import {
   existsSync,
   readFileSync,
   writeFileSync,
-  unlinkSync,
+  rmSync,
 } from "node:fs";
 import { join } from "node:path";
 import {
   createStructuredPptFixture,
   createPdfFixture,
 } from "../helpers/ppt-fixture.mjs";
+import { openPdf } from "../../lib/ppt-render.mjs";
 
 test("repeated question headers and highlighted answers preserve late problem figures; disputes require manual answers", async ({
   page,
   request,
-}) => {
+}, testInfo) => {
   const dir = join(process.env.PMRZ_E2E_DIR!, "structured-ppt-input");
   mkdirSync(dir, { recursive: true });
   const file = await createStructuredPptFixture(dir);
@@ -28,19 +29,24 @@ test("repeated question headers and highlighted answers preserve late problem fi
   await page
     .getByLabel("PPTX 파일 업로드", { exact: true })
     .setInputFiles(file);
-  await page
-    .getByLabel("화면용 PDF 파일 업로드", { exact: true })
-    .setInputFiles(wrongPdf);
-  await expect(page.locator('.ppt-current [role="alert"]')).toContainText(
-    "PPT는 12장인데 PDF는 11페이지",
-    { timeout: 30000 },
-  );
-  await expect(page.locator(".ppt-candidate")).toHaveCount(0);
-  await page
-    .getByLabel("화면용 PDF 파일 업로드", { exact: true })
-    .setInputFiles(pdf);
   const cards = page.locator(".ppt-candidate");
   await expect(cards).toHaveCount(2, { timeout: 90000 });
+  await expect(
+    page.getByText("PDF 자동 생성·저장 완료", { exact: true }),
+  ).toBeVisible();
+  const downloading = page.waitForEvent("download");
+  await page.getByRole("link", { name: "PDF 다운로드", exact: true }).click();
+  const downloaded = await downloading,
+    path = testInfo.outputPath("auto-converted.pdf");
+  await downloaded.saveAs(path);
+  expect(await downloaded.failure()).toBeNull();
+  const document = await openPdf(path);
+  expect(document.pdf.numPages).toBe(12);
+  await document.destroy();
+  await page.screenshot({
+    path: testInfo.outputPath("ppt-native-ready.png"),
+    fullPage: true,
+  });
   await expect(
     cards.nth(0).getByLabel("문제 슬라이드", { exact: true }),
   ).toHaveValue("1, 5, 6");
@@ -75,9 +81,9 @@ test("repeated question headers and highlighted answers preserve late problem fi
   await page
     .getByRole("button", { name: "선택한 1문항 등록", exact: true })
     .click();
-  await expect(page.locator(".ppt-current .backup-success")).toContainText(
-    "1문항 등록",
-  );
+  await expect(
+    page.locator(".ppt-current .backup-success[role=status]"),
+  ).toContainText("1문항 등록");
   const jobs = await (await request.get("/api/v1/ppt-imports")).json();
   const jobId = jobs.jobs.find((j: { filename: string }) =>
     j.filename.includes("구조데모"),
@@ -120,7 +126,7 @@ test("repeated question headers and highlighted answers preserve late problem fi
   await expect(
     page.getByAltText("정답·해설 이미지", { exact: true }),
   ).toBeVisible();
-  // Upgrade an old job without a rendering-mode field. Retry must ask for PDF,
+  // Upgrade an old job without a rendering-mode field. Retry must generate PDF,
   // retain registered questions, and never invoke the old Office converter.
   const legacyDir = join(
     process.env.PMRZ_E2E_DIR!,
@@ -132,7 +138,7 @@ test("repeated question headers and highlighted answers preserve late problem fi
   delete legacy.renderMode;
   delete legacy.pdfFilename;
   delete legacy.pdfSha256;
-  unlinkSync(join(legacyDir, "render-input.pdf"));
+  rmSync(join(legacyDir, "render-input.pdf"), { force: true });
   writeFileSync(join(legacyDir, "job.json"), JSON.stringify(legacy));
   expect(
     (
@@ -145,7 +151,49 @@ test("repeated question headers and highlighted answers preserve late problem fi
         (await (await request.get(`/api/v1/ppt-imports/${jobId}`)).json())
           .phase,
     )
-    .toBe("awaiting-pdf");
+    .toBe("ready");
+  const regenerated = await (
+    await request.get(`/api/v1/ppt-imports/${jobId}`)
+  ).json();
+  expect(regenerated.renderMode).toBe("native");
+  expect(regenerated.pdfReady).toBe(true);
+  const wrong = await request.post(`/api/v1/ppt-imports/${jobId}/pdf`, {
+    headers: {
+      "X-Pmrz-Filename": encodeURIComponent("wrong.pdf"),
+      "Content-Type": "application/pdf",
+    },
+    data: readFileSync(wrongPdf),
+  });
+  expect(wrong.status()).toBe(202);
+  await expect
+    .poll(
+      async () =>
+        (await (await request.get(`/api/v1/ppt-imports/${jobId}`)).json())
+          .phase,
+    )
+    .toBe("error");
+  expect(
+    (await (await request.get(`/api/v1/ppt-imports/${jobId}`)).json()).error,
+  ).toContain("PPT는 12장인데 PDF는 11페이지");
+  await page.goto("/manage/ppt");
+  await page
+    .locator(".ppt-job-button")
+    .filter({ hasText: "구조데모.pptx" })
+    .click();
+  await page
+    .getByLabel("화면용 PDF 파일 업로드", { exact: true })
+    .setInputFiles(pdf);
+  await expect(cards).toHaveCount(2, { timeout: 30000 });
+  await page
+    .getByRole("button", { name: "보존한 PPT로 PDF 자동 생성", exact: true })
+    .click();
+  await expect(
+    page.getByText("PDF 자동 생성·저장 완료", { exact: true }),
+  ).toBeVisible({ timeout: 30000 });
+  expect(
+    (await (await request.get(`/api/v1/ppt-imports/${jobId}`)).json())
+      .renderMode,
+  ).toBe("native");
   expect(
     (await (await request.get("/api/v1/overview")).json()).stats.total,
   ).toBe(before + 2);

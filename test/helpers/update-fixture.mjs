@@ -11,6 +11,7 @@ import { pathToFileURL } from "node:url";
 
 const projectFiles = [
   "app",
+  "assets",
   "components",
   "lib",
   "scripts",

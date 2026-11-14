@@ -10,6 +10,9 @@ import {
 import { groupSlides, detectAnswer } from "../lib/ppt-model.mjs";
 import { jobDirectory, importRoot, getJob, saveJob } from "../lib/ppt-jobs.mjs";
 import { readJson } from "../lib/update-state.mjs";
+import { convertNativePresentation } from "../lib/ppt-native.mjs";
+import { createHash } from "node:crypto";
+import { createReadStream } from "node:fs";
 const [data, id] = process.argv.slice(2),
   dir = jobDirectory(data, id),
   abort = new AbortController();
@@ -30,9 +33,15 @@ try {
   if (lock?.id !== id)
     throw new Error("분석 작업의 소유 정보를 확인할 수 없습니다.");
   const job = getJob(data, id);
-  saveJob(dir, { phase: "analyzing", progress: 0, pid: process.pid });
+  const renderMode = job.renderMode || "native";
+  saveJob(dir, {
+    phase: "analyzing",
+    progress: 0,
+    pid: process.pid,
+    renderMode,
+  });
   const slides = await readPresentation(join(dir, "source.pptx"));
-  const renderMode = job.renderMode || "office";
+  let conversionWarnings = [];
   if (renderMode === "pdf" && !existsSync(join(dir, "render-input.pdf"))) {
     saveJob(dir, {
       phase: "awaiting-pdf",
@@ -49,11 +58,41 @@ try {
       totalSlides: slides.length,
       completedSlides: 0,
     });
-    const file =
+    let file;
+    if (renderMode === "native") {
+      saveJob(dir, { phase: "converting", progress: 0, convertedSlides: 0 });
+      const result = await convertNativePresentation(
+        dir,
+        slides,
+        abort.signal,
+        (done, total) => {
+          saveJob(dir, {
+            phase: "converting",
+            convertedSlides: done,
+            progress: Math.round((done / total) * 40),
+          });
+        },
+      );
+      file = result.file;
+      conversionWarnings = result.warnings;
+    } else
+      file =
         renderMode === "pdf"
           ? join(dir, "render-input.pdf")
-          : await convertPresentation(dir, abort.signal),
-      document = await openPdf(file);
+          : await convertPresentation(dir, abort.signal);
+    const hash = createHash("sha256");
+    for await (const chunk of createReadStream(file)) hash.update(chunk);
+    saveJob(dir, {
+      phase: "rendering",
+      pdfReady: true,
+      pdfSha256: hash.digest("hex"),
+      pdfFilename:
+        renderMode === "pdf"
+          ? job.pdfFilename
+          : job.filename.replace(/\.pptx$/i, ".pdf"),
+      conversionWarnings,
+    });
+    const document = await openPdf(file);
     pdf = document.pdf;
     closePdf = document.destroy;
     if (pdf.numPages !== slides.length)
@@ -74,7 +113,11 @@ try {
       ) {
         saveJob(dir, {
           phase: "ocr",
-          progress: Math.round((i / slides.length) * 95),
+          progress:
+            (renderMode === "native" ? 40 : 0) +
+            Math.round(
+              (i / slides.length) * (renderMode === "native" ? 55 : 95),
+            ),
           completedSlides: i,
         });
         if (!ocr) ocr = await createOcr(importRoot(data));
@@ -100,12 +143,17 @@ try {
       saveJob(dir, {
         phase: "rendering",
         completedSlides: i + 1,
-        progress: Math.round(((i + 1) / slides.length) * 95),
+        progress:
+          (renderMode === "native" ? 40 : 0) +
+          Math.round(
+            ((i + 1) / slides.length) * (renderMode === "native" ? 55 : 95),
+          ),
       });
     }
     const grouped = groupSlides(slides, { mode: "auto" }, job.metadata);
     saveJob(dir, {
       ...grouped,
+      warnings: [...conversionWarnings, ...grouped.warnings],
       reviewDrafts: null,
       slides,
       ocrCount,

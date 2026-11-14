@@ -21,12 +21,16 @@ test("33MB PPTX: variable groups + local image OCR → review/edit → import/pl
   await expect(
     page.getByRole("heading", { name: "PPTX 자동 가져오기", exact: false }),
   ).toBeVisible();
+  await page.getByText("다른 가져오기 방식", { exact: true }).click();
+  await page
+    .getByLabel("화면 가져오기 방식", { exact: true })
+    .selectOption("pdf");
   await page
     .getByLabel("PPTX 파일 업로드", { exact: true })
     .setInputFiles(file);
   await expect(
     page.getByRole("heading", {
-      name: "2. 같은 PPT에서 저장한 PDF 올리기",
+      name: "같은 PPT에서 저장한 PDF로 계속하기",
       exact: true,
     }),
   ).toBeVisible({ timeout: 30000 });
@@ -114,10 +118,9 @@ test("33MB PPTX: variable groups + local image OCR → review/edit → import/pl
   await page
     .getByRole("button", { name: "선택한 2문항 등록", exact: true })
     .click();
-  await expect(page.locator(".ppt-current .backup-success")).toContainText(
-    "2문항 등록",
-    { timeout: 30000 },
-  );
+  await expect(
+    page.locator(".ppt-current .backup-success[role=status]"),
+  ).toContainText("2문항 등록", { timeout: 30000 });
   const detail = await (await request.get(`/api/v1/ppt-imports/${id}`)).json(),
     qid = detail.commitResult.questionIds[0],
     q = await (await request.get(`/api/v1/questions/${qid}`)).json();
@@ -136,9 +139,9 @@ test("33MB PPTX: variable groups + local image OCR → review/edit → import/pl
     .locator(".ppt-job-button")
     .filter({ hasText: detail.filename })
     .click();
-  await expect(page.locator(".ppt-current .backup-success")).toContainText(
-    "2문항 등록",
-  );
+  await expect(
+    page.locator(".ppt-current .backup-success[role=status]"),
+  ).toContainText("2문항 등록");
   await page
     .getByRole("button", { name: "등록 가능한 문항 전체 선택", exact: true })
     .click();
@@ -150,9 +153,9 @@ test("33MB PPTX: variable groups + local image OCR → review/edit → import/pl
   await page
     .getByRole("button", { name: "선택한 2문항 등록", exact: true })
     .click();
-  await expect(page.locator(".ppt-current .backup-success")).toContainText(
-    "기존 동일 문항 2개 유지",
-  );
+  await expect(
+    page.locator(".ppt-current .backup-success[role=status]"),
+  ).toContainText("기존 동일 문항 2개 유지");
   expect(
     (await (await request.get("/api/v1/overview")).json()).stats.total,
   ).toBe(before.stats.total + 2);

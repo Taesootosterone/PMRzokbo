@@ -20,7 +20,8 @@ import {
 } from "@/lib/ppt-jobs.mjs";
 import { pptCapabilities } from "@/lib/ppt-local.mjs";
 import { MAX_PPT_BYTES } from "@/lib/ppt-model.mjs";
-import { readFileSync } from "node:fs";
+import { readFileSync, createReadStream, statSync, existsSync } from "node:fs";
+import { Readable } from "node:stream";
 import { join } from "node:path";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -95,7 +96,9 @@ async function handle(req: Request, context: Context) {
           const options = await req.json().catch(() => ({}));
           return json(
             startJob(db.directory, id, {
-              renderMode: options.renderMode === "office" ? "office" : "pdf",
+              renderMode: ["office", "pdf"].includes(options.renderMode)
+                ? options.renderMode
+                : "native",
             }),
             202,
           );
@@ -108,6 +111,37 @@ async function handle(req: Request, context: Context) {
           return json(saveReview(db.directory, id, await req.json()));
         if (id && action === "pdf" && method === "POST")
           return json(await acceptRenderPdf(req, db.directory, id), 202);
+        if (id && action === "pdf" && method === "GET") {
+          const job = getJob(db.directory, id),
+            dir = jobDirectory(db.directory, id);
+          const file = join(
+            /* turbopackIgnore: true */ dir,
+            job.renderMode === "native"
+              ? "native"
+              : job.renderMode === "pdf"
+                ? "."
+                : "render",
+            job.renderMode === "pdf" ? "render-input.pdf" : "source.pdf",
+          );
+          if (!job.pdfReady || !existsSync(/* turbopackIgnore: true */ file))
+            throw new AppError(404, "PDF 생성이 아직 끝나지 않았습니다.");
+          const filename = job.filename.replace(/\.pptx$/i, ".pdf");
+          return new Response(
+            Readable.toWeb(
+              createReadStream(/* turbopackIgnore: true */ file),
+            ) as ReadableStream,
+            {
+              headers: {
+                "Content-Type": "application/pdf",
+                "Content-Length": String(
+                  statSync(/* turbopackIgnore: true */ file).size,
+                ),
+                "Content-Disposition": `${url.searchParams.get("download") === "1" ? "attachment" : "inline"}; filename="pmrzokbo-converted.pdf"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+                "Cache-Control": "no-store",
+              },
+            },
+          );
+        }
         if (id && action === "slides" && method === "GET") {
           const n = Number(path[3]),
             job = getJob(db.directory, id);

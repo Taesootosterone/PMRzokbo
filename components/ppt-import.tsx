@@ -55,7 +55,10 @@ type Job = {
   totalSlides?: number;
   completedSlides?: number;
   ocrCount?: number;
-  renderMode?: "pdf" | "office";
+  renderMode?: "native" | "pdf" | "office";
+  pdfReady?: boolean;
+  conversionWarnings?: string[];
+  convertedSlides?: number;
   pdfFilename?: string;
   pdfSha256?: string;
   error?: string | null;
@@ -82,6 +85,7 @@ type Listing = {
 const active = [
   "queued",
   "analyzing",
+  "converting",
   "rendering",
   "ocr",
   "committing",
@@ -91,6 +95,7 @@ const phaseName: Record<string, string> = {
   uploaded: "원본 저장됨",
   queued: "분석 준비 중",
   analyzing: "슬라이드 구조 읽는 중",
+  converting: "앱 내부에서 PDF 만드는 중",
   "awaiting-pdf": "같은 PPT의 PDF를 올려 주세요",
   "uploading-pdf": "PDF 전송 중",
   rendering: "슬라이드 화면 변환 중",
@@ -145,7 +150,7 @@ export function PptImportPage({
     [busy, setBusy] = useState(false),
     [uploading, setUploading] = useState(false),
     [ocr, setOcr] = useState(true),
-    [renderMode, setRenderMode] = useState("pdf"),
+    [renderMode, setRenderMode] = useState("native"),
     [reviewed, setReviewed] = useState(false),
     [isDemo, setIsDemo] = useState(false),
     [dirty, setDirty] = useState(false),
@@ -268,6 +273,13 @@ export function PptImportPage({
   }
   async function uploadPdf(file: File) {
     if (!job) return;
+    if (
+      (dirty || job.reviewDrafts?.length) &&
+      !window.confirm(
+        "PDF를 바꾸면 검토 초안을 다시 만듭니다. 등록한 문항은 유지됩니다. 계속할까요?",
+      )
+    )
+      return;
     if (file.size > 256 * 1024 * 1024) {
       setError("PDF는 256MB 이하로 나누어 주세요.");
       return;
@@ -294,7 +306,10 @@ export function PptImportPage({
       setBusy(false);
     }
   }
-  async function action(name: "retry" | "cancel") {
+  async function action(
+    name: "retry" | "cancel",
+    requestedMode?: "native" | "pdf" | "office",
+  ) {
     if (!job) return;
     if (
       name === "retry" &&
@@ -311,7 +326,9 @@ export function PptImportPage({
           method: "POST",
           body:
             name === "retry"
-              ? JSON.stringify({ renderMode: job.renderMode || "pdf" })
+              ? JSON.stringify({
+                  renderMode: requestedMode || job.renderMode || "native",
+                })
               : "{}",
         }),
       );
@@ -418,7 +435,7 @@ export function PptImportPage({
     if (
       !job ||
       !window.confirm(
-        "이 PPT의 원본 사본·미리보기·분석 초안을 삭제합니다. 이미 등록한 문항·이미지·풀이 기록은 유지됩니다. 삭제할까요?",
+        "이 PPT의 원본 사본·자동 생성 PDF·미리보기·분석 초안을 삭제합니다. 이미 등록한 문항·이미지·풀이 기록은 유지됩니다. 삭제할까요?",
       )
     )
       return;
@@ -457,16 +474,16 @@ export function PptImportPage({
           <FileStack size={30} />
           <h2>1. PPTX 원본 올리기</h2>
           <p>
-            PPTX에서 문항 구조·노트·정답 표시를 읽고, 같은 파일을 PDF로 저장해
-            함께 올리면 화면을 이미지로 보존합니다. 별도 문서 변환 프로그램을
-            설치할 필요가 없습니다. 파일은 서버 Mac에서 처리합니다.
+            PPTX만 올리면 앱이 PDF를 자동 생성해 저장하고, 이어서
+            문항·정답·해설을 분석합니다. 별도 문서 프로그램 설치나 PDF 준비 없이
+            서버 Mac에서 처리합니다.
           </p>
           <p className="field-help">
-            순서: PPTX 올리기 → 같은 PPT의 PDF 올리기 → 검토 후 등록
+            순서: PPTX 올리기 → PDF 자동 생성·저장 → 문제 분석 → 검토 후 등록
           </p>
-          {listing?.capabilities.officeAvailable && (
+          {listing && (
             <details>
-              <summary>기존 자동 변환 방식 사용</summary>
+              <summary>다른 가져오기 방식</summary>
               <label>
                 화면 가져오기 방식
                 <select
@@ -475,10 +492,13 @@ export function PptImportPage({
                   disabled={uploading || processing}
                   onChange={(e) => setRenderMode(e.target.value)}
                 >
-                  <option value="pdf">PDF 함께 올리기 · 추가 설치 없음</option>
-                  <option value="office">
-                    이미 설치된 LibreOffice로 자동 변환
-                  </option>
+                  <option value="native">앱에서 PDF 자동 생성 · 기본</option>
+                  <option value="pdf">이미 만든 PDF를 함께 올리기</option>
+                  {listing.capabilities.officeAvailable && (
+                    <option value="office">
+                      이미 설치된 LibreOffice로 자동 변환
+                    </option>
+                  )}
                 </select>
               </label>
             </details>
@@ -566,10 +586,10 @@ export function PptImportPage({
               <p role="status">
                 {phaseName[job.phase] || job.phase}
                 {job.totalSlides
-                  ? ` · ${job.completedSlides || 0}/${job.totalSlides}장`
+                  ? ` · ${job.phase === "converting" ? job.convertedSlides || 0 : job.completedSlides || 0}/${job.totalSlides}장`
                   : ""}
               </p>
-              {job.pdfFilename && (
+              {job.pdfReady && job.pdfFilename && (
                 <p className="field-help">화면용 PDF: {job.pdfFilename}</p>
               )}
             </div>
@@ -609,11 +629,54 @@ export function PptImportPage({
               {job.error}
             </p>
           )}
+          {!processing && ["pdf", "office"].includes(job.renderMode || "") && (
+            <button
+              className="button secondary"
+              disabled={busy}
+              onClick={() => void action("retry", "native")}
+            >
+              보존한 PPT로 PDF 자동 생성
+            </button>
+          )}
+          {job.pdfReady && (
+            <div className="backup-success">
+              <Check size={18} />
+              <div>
+                <strong>
+                  {job.renderMode === "native"
+                    ? "PDF 자동 생성·저장 완료"
+                    : "화면용 PDF 저장 완료"}
+                </strong>
+                <p>
+                  <a
+                    className="text-button"
+                    href={`/api/v1/ppt-imports/${job.id}/pdf`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    PDF 열어보기 ↗
+                  </a>
+                  {" · "}
+                  <a
+                    className="text-button"
+                    href={`/api/v1/ppt-imports/${job.id}/pdf?download=1`}
+                  >
+                    PDF 다운로드
+                  </a>
+                </p>
+              </div>
+            </div>
+          )}
+          {job.conversionWarnings?.map((w, i) => (
+            <p key={i} className="field-help">
+              {w}
+            </p>
+          ))}
           {["awaiting-pdf", "error", "cancelled", "uploaded"].includes(
             job.phase,
           ) && (
             <section className="ppt-warning">
-              <h3>2. 같은 PPT에서 저장한 PDF 올리기</h3>
+              <h3>같은 PPT에서 저장한 PDF로 계속하기</h3>
               <p>
                 PowerPoint 또는 Keynote에서 PPT를 PDF로 저장한 뒤 선택하세요.
                 <strong> 슬라이드 한 장이 PDF 한 페이지</strong>가 되도록 전체
